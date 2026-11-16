@@ -90,7 +90,7 @@ export default function POForm({ draft, setDraft, step, fields = null, settings,
           </tr>
           <tr className="pi-item-detail"><td colSpan={6}>
             <label className="pi-price-check"><input type="checkbox" aria-label={`품목 ${index+1} · 단가표 대신 입력한 단가 사용`} checked={row.confirm_price_override ?? false} onChange={(event) => item(index,"confirm_price_override",event.target.checked)} /> 단가표 대신 입력한 단가 사용</label>
-            <details open={fields?.some((path) => path === `items.${index}.discount_percent`)}>
+            <details open={fields?.some((path) => path.startsWith(`items.${index}.`))}>
             <summary>품목 {index+1} 상세 · 규격·할인·무상 수량</summary>
             <div className="settings-fields">
               {[["product_code","상품 코드"],["capacity","용량·규격"],["discount_percent","할인율 (%)"],["free_quantity","무상 수량"],["promotion","프로모션"]].filter(([key]) => wanted(`items.${index}.${key}`) || fields?.includes("items")).map(([key,label]) =>

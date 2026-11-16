@@ -2,10 +2,13 @@
 from copy import deepcopy
 from hashlib import sha256
 import json
+import logging
 from typing import Callable
 
 from app.trade.common.models import DocumentError
 from app.trade.review.models import Branding, Decision, RenderedFile, ReviewRepository, ReviewRequest
+
+log = logging.getLogger(__name__)
 
 
 def content_hash(payload: dict) -> str:
@@ -72,6 +75,8 @@ def decide(proposal_id: str, document_id: int, decision: Decision, *, repository
     try:
         files = renderer(proposal["payload"], branding)
     except (ValueError, ArithmeticError, TypeError) as error:
+        log.exception("Approved document rendering failed (document_id=%s, proposal_id=%s)",
+                      document_id, proposal_id)
         raise DocumentError("RENDER_FAILED", "파일을 만들지 못했습니다. 문서와 회사 이미지를 확인하세요", 422) from error
     if (sorted(file.file_format for file in files) != sorted(proposal["payload"]["formats"])
             or any(not file.content for file in files)):

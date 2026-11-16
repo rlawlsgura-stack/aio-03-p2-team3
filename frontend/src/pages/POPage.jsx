@@ -5,7 +5,7 @@ import { useAuth } from "../useAuth"
 import AIInput from "../trade/AIInput"
 import DocumentSnapshot from "../trade/DocumentSnapshot"
 import POForm from "../trade/POForm"
-import { emptyPO, PO_STEPS, poDraft, poMissing, poNextScreen, poPayload, poSectionFor } from "../trade/po-input"
+import { emptyPO, PO_STEPS, poDraft, poIssueActions, poMissing, poNextScreen, poPayload, poSectionFor } from "../trade/po-input"
 import ReviewPanel from "../trade/ReviewPanel"
 
 const STATUS = { needs_input: "입력 필요", ready: "검토 가능", issued: "발급 완료" }
@@ -30,7 +30,9 @@ export default function POPage() {
   const [guided, setGuided] = useState(false)
   const [settings, setSettings] = useState(null)
   const [settingsError, setSettingsError] = useState("")
+  const [issueEditor, setIssueEditor] = useState(null)
   const question = useRef(null)
+  const issueEditorRef = useRef(null)
   const mutation = useRef(null)
   const base = "/trade/po"
 
@@ -41,8 +43,15 @@ export default function POPage() {
     if (review) setFormats(review.payload.formats)
     setDirty(false)
     setModifying(false)
+    setIssueEditor(null)
     setScreen(next)
   }
+
+  useEffect(() => {
+    if (!issueEditor) return
+    issueEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    issueEditorRef.current?.querySelector("input, textarea, select")?.focus({ preventScroll: true })
+  }, [issueEditor])
 
   // 같은 사용자의 토큰 갱신으로 저장 전 입력을 다시 읽어 덮어쓰지 않는다.
   const read = useEffectEvent(async (id, signal) => {
@@ -182,6 +191,7 @@ export default function POPage() {
   const canEdit = !busy && !loading && (!documentId || current)
   const stepIndex = PO_STEPS.findIndex((entry) => entry.key === screen.key)
   const step = PO_STEPS[stepIndex]
+  const issueStep = issueEditor && PO_STEPS.find((entry) => entry.key === issueEditor.step)
   const following = guided ? poNextScreen(draft, stepIndex)
     : { key: PO_STEPS[stepIndex + 1]?.key ?? "review", fields: null }
   const finalReview = proposal && ["pending", "approved"].includes(proposal.status) && !modifying && !dirty
@@ -247,7 +257,17 @@ export default function POPage() {
         {dirty && <p className="form-error">아직 저장하지 않은 변경사항이 있어요. 저장한 뒤 검토해 주세요.</p>}
         {remaining.length > 0 && <div className="pi-missing"><p>아직 입력할 내용이 있어요.</p>{remaining.map((entry) =>
           <button key={entry.key} type="button" className="btn" disabled={!canEdit} onClick={() => setScreen({ key: entry.key, fields: missing.filter((path) => poSectionFor(path) === entry.key) })}>{entry.label} 보완</button>)}</div>}
-        {current.issues.length > 0 && <ul className="document-issues" role="alert">{current.issues.map((issue,index) => <li key={index}>{issue.message}</li>)}</ul>}
+        {current.issues.length > 0 && <ul className="document-issues" role="alert">{current.issues.map((issue,index) => <li key={index}>{issue.message}{poIssueActions(issue.message, draft.items).map((action) =>
+          <button key={action.step} type="button" className="pi-text-button issue-edit-link" disabled={!canEdit}
+            onClick={() => setIssueEditor({ step: action.step, fields: action.fields ?? null })}>{action.label}</button>)}</li>)}</ul>}
+        {issueEditor && issueStep && <section ref={issueEditorRef} className="issue-editor-panel" aria-label={`${issueStep.label} 바로 수정`}>
+          <div className="issue-editor-heading"><div><h3>{issueStep.label} 바로 수정</h3><p>현재 입력한 값은 유지됩니다. 수정 후 저장하면 전체 확인으로 돌아갑니다.</p></div>
+            <button type="button" className="pi-text-button" disabled={busy} onClick={() => setIssueEditor(null)}>닫기</button></div>
+          <POForm key={`issue-${issueStep.key}-${issueEditor.fields?.join(",") ?? "all"}`} draft={draft} setDraft={setDraft} step={issueStep.key} fields={issueEditor.fields}
+            settings={settings}
+            missing={current.missing_fields} disabled={!canEdit} onDirty={() => setDirty(true)} onShowAll={() => {}} />
+          <div className="pi-step-actions"><button type="button" className="btn blue" disabled={!canEdit || !dirty} onClick={save}>{busy ? "저장 중…" : "저장하고 다시 확인"}</button></div>
+        </section>}
         {current.status === "needs_input" && <p className="section-note">표시된 항목을 수정한 뒤 다시 저장해 주세요. 발행 회사·직인은 <Link to="/settings">회사 설정</Link>에서 확인할 수 있어요.</p>}
         <DocumentSnapshot kind="po" document={current.document} />
         <fieldset className="editor-checks" disabled={busy || pending || current.status !== "ready"}><legend>발급 형식</legend>{["pdf","xlsx"].map((format) => <label key={format}><input type="checkbox" checked={formats.includes(format)} onChange={(event) => setFormats((previous) => event.target.checked ? [...previous, format] : previous.filter((value) => value !== format))} /> {format.toUpperCase()}</label>)}</fieldset>

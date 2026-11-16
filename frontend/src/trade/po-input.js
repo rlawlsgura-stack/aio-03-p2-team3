@@ -35,6 +35,29 @@ export function poSectionFor(path) {
   return path === "items" || path.startsWith("items.") ? "items" : "terms"
 }
 
+export function poIssueActions(message, items = []) {
+  if (message === "PO buyer must be the issuing company") {
+    return [{ step: "buyer", label: "구매자 수정" }]
+  }
+  if (message === "PO seller must be the supplier and buyer must be the issuing company") {
+    return [{ step: "seller", label: "공급자 수정" }, { step: "buyer", label: "구매자 수정" }]
+  }
+  const exactProduct = message.match(/^Confirm missing information: Exact catalog product match for (.+); capacity\/SKU may be needed$/)
+  if (exactProduct) {
+    const itemIndex = items.findIndex((item) => item.product_name === exactProduct[1])
+    const fields = itemIndex < 0 ? null : ["product_name", "product_code", "capacity"]
+      .map((field) => `items.${itemIndex}.${field}`)
+    return [{ step: "items", label: "품목 수정", fields }]
+  }
+  if (/(?:price|unit price|quantity|capacity|SKU|item )/i.test(message)) {
+    return [{ step: "items", label: "품목 수정" }]
+  }
+  if (/(?:payment terms|incoterms|shipment reference|country of origin|document number|currency)/i.test(message)) {
+    return [{ step: "terms", label: "거래 조건 수정" }]
+  }
+  return []
+}
+
 function blank(value) {
   return value == null || /^(?:\s*|not provided|to be confirmed|to confirm|tbd|unknown|none|null|n\/a)$/i.test(String(value).trim())
 }
