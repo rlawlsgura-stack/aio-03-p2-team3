@@ -91,9 +91,15 @@ refresh_settings = refresh_issuer
 
 
 def check_pi_for_review(document: dict) -> None:
-    if not all((document.get("bank") or {}).get(key) for key in (
-        "BENEFICIARY", "BANK_NAME", "BRANCH", "SWIFT", "ACCOUNT_NUMBER", "BANK_ADDRESS")):
-        raise DocumentError("BANK_CONFIGURATION_REQUIRED", "PI 지급 계좌 6항목을 설정한 뒤 문서에 반영하세요")
+    labels = {"BENEFICIARY": "수취인", "BANK_NAME": "은행명", "BRANCH": "지점명",
+              "SWIFT": "SWIFT 코드", "ACCOUNT_NUMBER": "계좌번호", "BANK_ADDRESS": "은행 주소"}
+    bank = document.get("bank") or {}
+    missing = [label for key, label in labels.items() if not bank.get(key)]
+    if missing:
+        currency = document.get("currency") or "PI 통화"
+        fields = "·".join(missing)
+        raise DocumentError("BANK_CONFIGURATION_REQUIRED",
+                            f"회사 설정 > 계좌 > {currency} > {fields}: 빠진 값을 저장한 뒤 PI에 최신 설정을 반영하세요")
 
 
 # 공통 HTTP 흐름에 노출하는 업무 진입점. 기존 내부 함수 이름도 유지한다.

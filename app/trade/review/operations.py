@@ -47,6 +47,30 @@ def get_proposal(proposal_id: str, document_id: int, *, repository: ReviewReposi
     return proposal
 
 
+def _render_failure_message(error: Exception) -> str:
+    detail = str(error)
+    if detail.startswith("XLSX_TEXT_FIELD:"):
+        field = detail.partition(":")[2]
+        return f"XLSX 발급 > {field}: 한글 또는 지원되지 않는 문자가 있습니다. 해당 값을 영문으로 바꾸세요."
+    if detail.startswith("PDF_IMAGE_FIELD:"):
+        image = detail.partition(":")[2]
+        return f"회사 설정 > 이미지 > {image}: PNG 파일이 손상됐거나 지원되지 않는 형식입니다. 해당 이미지를 PNG로 다시 등록하세요."
+    if detail in {"A company seal is required to create a trade-document PDF",
+                  "The company seal could not be embedded in the PDF"}:
+        return "회사 설정 > 회사 이미지 > 직인: 유효한 PNG 직인을 등록한 뒤 새 검토를 만들고 승인하세요."
+    if detail == "A product row is too tall to fit on one PDF page; shorten its description":
+        return "문서 작성 > 품목 > 품목명 또는 용량·규격: 내용이 너무 길어 PDF 한 페이지에 들어가지 않습니다. 해당 값을 짧게 줄이세요."
+    if detail == "Document content exceeds the reserved footer area; add a page break or shorten the source information":
+        return "문서 작성 > 거래 조건 > 비고: 비고가 PDF 하단 공간을 넘습니다. 비고 내용을 짧게 줄이세요."
+    if detail == "지원하지 않는 파일 형식":
+        return "전체 확인 > 발급 형식: PDF 또는 XLSX를 선택하고 새 검토를 만들어 주세요."
+    if isinstance(error, ArithmeticError):
+        return "문서 작성 > 품목 > 유상 수량·무상 수량·단가·할인율: 숫자 값을 확인하고 다시 검토하세요."
+    if isinstance(error, TypeError):
+        return "문서 작성 > 품목 또는 거래 조건: 입력한 값의 형식을 확인하고 다시 검토하세요."
+    return "파일을 생성하지 못했습니다. 입력값과 발급 형식을 확인한 뒤 다시 검토해 주세요."
+
+
 def download_file(file_id: str, *, repository: ReviewRepository) -> dict:
     return repository.file(file_id)
 
@@ -72,8 +96,8 @@ def decide(proposal_id: str, document_id: int, decision: Decision, *, repository
     try:
         files = renderer(proposal["payload"], branding)
     except (ValueError, ArithmeticError, TypeError) as error:
-        raise DocumentError("RENDER_FAILED", "파일을 만들지 못했습니다. 문서와 회사 이미지를 확인하세요", 422) from error
+        raise DocumentError("RENDER_FAILED", _render_failure_message(error), 422) from error
     if (sorted(file.file_format for file in files) != sorted(proposal["payload"]["formats"])
             or any(not file.content for file in files)):
-        raise DocumentError("RENDER_FAILED", "요청한 형식의 파일을 모두 만들지 못했습니다", 422)
+        raise DocumentError("RENDER_FAILED", "전체 확인 > 발급 형식: 선택한 PDF/XLSX 중 일부가 생성되지 않았습니다. 발급 형식을 다시 선택하고 검토하세요.", 422)
     return repository.approve(proposal_id, decision.revision, decision.content_hash, files)

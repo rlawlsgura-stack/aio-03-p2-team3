@@ -84,7 +84,7 @@ class _Canvas:
             command = f"({_pdf_escape(value)}) Tj"
         self.commands.extend([self._rgb(color) + " rg", f"BT /{font} {size} Tf 1 0 0 1 {x} {PAGE_H-top} Tm {command} ET"])
 
-    def image(self, data, x, top, max_w, max_h, *, watermark=False, crop_box=None):
+    def image(self, data, x, top, max_w, max_h, *, watermark=False, crop_box=None, asset_name="회사 이미지"):
         # 원본과 다른 점: 파일 경로 대신 PNG bytes를 받는다.
         if not data:
             return False
@@ -102,7 +102,7 @@ class _Canvas:
                          "width": width, "height": height}
                 self.image_cache[key] = image
         except Exception as exc:
-            raise ValueError("Could not load the brand PNG image") from exc
+            raise ValueError(f"PDF_IMAGE_FIELD:{asset_name}") from exc
         crop_x = crop_y = 0
         width, height = image["width"], image["height"]
         crop_w, crop_h = width, height
@@ -448,7 +448,7 @@ def render_trade_document(data, bank_details=None, *, logo=None, seal=None, issu
         canvas.rect(0, 0, PAGE_W, PAGE_H, (1, 1, 1))
         canvas.rect(0, 0, PAGE_W, 94, (1, 1, 1))
         canvas.rect(0, 91, PAGE_W, 3, BRAND_BLUE)
-        has_logo = canvas.image(logo, 30, 4, 235, 84)
+        has_logo = canvas.image(logo, 30, 4, 235, 84, asset_name="로고")
         canvas.text(376, 40, title, 14.2, True, NAVY)
         canvas.rect(376, 52, 202, 23, MID_BLUE)
         canvas.text(388, 68, f"{number_label} {number}"[:38], 6.7, True, (0.90, 0.95, 0.99))
@@ -578,7 +578,7 @@ def render_trade_document(data, bank_details=None, *, logo=None, seal=None, issu
             canvas.text(sign_x + 10, bottom + 17, "AUTHORIZED REPRESENTATIVE", 5.3, True, MUTED)
             canvas.text(sign_x + 10, bottom + 32, issuer_signer(data), 6.3, True, INK)
             canvas.text(sign_x + 10, bottom + 42, issuer_display_name(data) or "TO BE CONFIRMED", 5.8, False, INK)
-            if not canvas.image(seal, sign_x + 10, bottom + 47, sign_width - 20, 53):
+            if not canvas.image(seal, sign_x + 10, bottom + 47, sign_width - 20, 53, asset_name="직인"):
                 raise ValueError("The company seal could not be embedded in the PDF")
             if bottom + 108 > 752:
                 raise ValueError("Document content exceeds the reserved footer area; add a page break or shorten the source information")

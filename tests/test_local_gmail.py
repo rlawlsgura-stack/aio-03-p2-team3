@@ -9,7 +9,6 @@ from threading import Event
 from pathlib import Path
 import re
 import socket
-import signal
 import subprocess
 import sys
 import time
@@ -418,13 +417,8 @@ def test_actual_local_launcher_collects_while_browser_idle_then_sends_once(tmp_p
                 assert after["reads"] > before["reads"]
                 assert after["ai_calls"] == before["ai_calls"] and after["sends"] == 1
                 assert after["watches"] == after["stops"] == 0
-            process.terminate()
-            # Uvicorn은 정상 lifespan 종료 뒤 원래 SIGTERM을 다시 발생시킬 수 있다.
-            return_code = process.wait(timeout=10)
-            if os.name == "nt":
-                assert return_code == 1
-            else:
-                assert return_code in {0, -signal.SIGTERM}
+                assert client.post("/test/shutdown").status_code == 200
+            assert process.wait(timeout=10) == 0
         finally:
             if process.poll() is None:
                 process.terminate()

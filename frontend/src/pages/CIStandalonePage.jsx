@@ -7,7 +7,7 @@ import CIForm, { CISummary } from "../trade/CIForm"
 import DocumentSnapshot from "../trade/DocumentSnapshot"
 import ReviewPanel from "../trade/ReviewPanel"
 import RenderFailureHelp from "../trade/RenderFailureHelp"
-import MissingFieldsDialog, { updateMissingField } from "../trade/MissingFieldsDialog"
+import MissingFieldsDialog, { DocumentIssueList, updateMissingField } from "../trade/MissingFieldsDialog"
 import AIInput from "../trade/AIInput"
 import { emptyPI, piDraft, piPayload } from "../trade/pi-input"
 import { standaloneCINext } from "../trade/ci-input"
@@ -209,8 +209,8 @@ function StandaloneEditor() {
         {screen === "review" && current && (finalReview ? <ReviewPanel kind="ci" proposal={proposal} token={token} busy={busy} dirty={dirty} modifying={modifying} headingRef={question} onDecision={decide} onModify={() => edit("buyer")} onRefreshSettings={refreshSettings}
           onDownload={(file) => perform((signal) => downloadFile(file, token, signal), () => setNotice("파일 다운로드를 요청했습니다."))} /> :
           <section className="pi-question"><h2 tabIndex={-1} ref={question}>전체 내용을 확인해 주세요</h2>
-            {current.issues.length > 0 && <ul className="document-issues">{current.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>}
-            {current.missing_fields.length > 0 && <p className="form-error">보완할 항목: {current.missing_fields.join(", ")}</p>}
+            <DocumentIssueList issues={current.issues} missing={current.missing_fields} document={draft} disabled={!enabled}
+              onOpen={(fields, issue) => setQuickFixOpen({ fields, issue })} />
             {current.missing_fields.length > 0 && <div className="pi-missing"><p>필요한 입력값만 팝업에서 보완할 수 있습니다.</p>
               <button className="btn" type="button" disabled={!enabled} onClick={() => setQuickFixOpen(true)}>누락 항목 입력</button></div>}
             <DocumentSnapshot kind="ci" document={current.document} />
@@ -219,7 +219,7 @@ function StandaloneEditor() {
               disabled={busy || loading || ["sent", "sending"].includes(current.status)} onClick={refreshSettings}>최신 설정 정보 적용</button>}
               <button className="btn blue" type="button" disabled={busy || dirty || modifying || current.status !== "ready" || !formats.length} onClick={propose}>최종 검토 만들기</button></div>
           </section>)}
-      <MissingFieldsDialog open={quickFixOpen} kind="CI" draft={draft} missing={current?.missing_fields} issues={current?.issues} busy={busy} dirty={dirty}
+      <MissingFieldsDialog open={Boolean(quickFixOpen)} fields={quickFixOpen?.fields} issue={quickFixOpen?.issue} kind="CI" draft={draft} missing={current?.missing_fields} issues={current?.issues} busy={busy} dirty={dirty}
         onChange={(path,value) => { setDraft((previous) => updateMissingField(previous,path,value)); setDirty(true); if (proposal?.status === "pending") setModifying(true) }}
         onSave={save} onClose={() => setQuickFixOpen(false)} />
       </div>{screen !== "source" && <CISummary draft={draft} standalone />}</div>

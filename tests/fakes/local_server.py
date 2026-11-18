@@ -34,6 +34,13 @@ def serve():
     from tests.test_openai_keys import sdk
     google = FakeGmailGoogle()
     original = main.create_app
+    server_holder = {}
+
+    class TestServer(local.uvicorn.Server):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            server_holder["server"] = self
+
     with pytest.MonkeyPatch.context() as patch:
         mock_sdk = sdk.__wrapped__(patch)
         calls = next(mock_sdk)
@@ -42,6 +49,11 @@ def serve():
 
         def create_app(settings):
             app = original(settings, google=google)
+
+            @app.post("/test/shutdown")
+            def shutdown():
+                server_holder["server"].should_exit = True
+                return {"status": "shutting_down"}
 
             @app.get("/test/state")
             def state(request: Request):
@@ -57,6 +69,7 @@ def serve():
             return app
 
         patch.setattr(main, "create_app", create_app)
+        patch.setattr(local.uvicorn, "Server", TestServer)
         # 템플릿의 30초 안내와 운영 주기는 그대로 두고 실행 시험만 빨리 돌린다.
         patch.setattr(main, "LocalGmailCollector", lambda access, store: LocalGmailCollector(access, store, interval=0.05))
         sys.argv = ["app.local", "--port", args.port]

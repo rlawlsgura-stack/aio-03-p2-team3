@@ -35,6 +35,46 @@ def _english(value):
     return value
 
 
+def _validate_xlsx_text_fields(doc, bank_details, seal):
+    fields = [("문서 > 문서번호", doc.get("document_number")),
+              ("문서 > 발행일", doc.get("issue_date")),
+              ("문서 > 통화", doc.get("currency")),
+              ("판매자 > 회사명", (doc.get("seller") or {}).get("legal_name")),
+              ("판매자 > 주소", (doc.get("seller") or {}).get("address")),
+              ("판매자 > 담당자", (doc.get("seller") or {}).get("contact")),
+              ("판매자 > 전화", (doc.get("seller") or {}).get("phone")),
+              ("판매자 > 이메일", (doc.get("seller") or {}).get("email")),
+              ("구매자 > 회사명", (doc.get("buyer") or {}).get("legal_name")),
+              ("구매자 > 주소", (doc.get("buyer") or {}).get("address")),
+              ("구매자 > 담당자", (doc.get("buyer") or {}).get("contact")),
+              ("구매자 > 전화", (doc.get("buyer") or {}).get("phone")),
+              ("구매자 > 이메일", (doc.get("buyer") or {}).get("email")),
+              ("구매자 > 등록 정보", (doc.get("buyer") or {}).get("registration_details")),
+              ("거래 조건 > 인도 조건", doc.get("incoterms")),
+              ("거래 조건 > 지급 조건", doc.get("payment_terms")),
+              ("거래 조건 > 비고", doc.get("remarks"))]
+    for index, item in enumerate(doc.get("items") or [], 1):
+        fields.extend([(f"품목 {index} > 품목명", item.get("product_name")),
+                       (f"품목 {index} > 용량·규격", item.get("capacity")),
+                       (f"품목 {index} > 단위", item.get("unit"))])
+        if doc.get("document_type") == "PL":
+            fields.extend([(f"품목 {index} > 포장 형태", item.get("package_type")),
+                           (f"품목 {index} > HS 코드", item.get("hs_code"))])
+    if doc.get("document_type") == "PI":
+        for key, label in (("BENEFICIARY", "수취인"), ("BANK_NAME", "은행명"), ("BRANCH", "지점명"),
+                           ("SWIFT", "SWIFT 코드"), ("ACCOUNT_NUMBER", "계좌번호"), ("BANK_ADDRESS", "은행 주소")):
+            fields.append((f"회사 설정 > 계좌 > {doc.get('currency') or '문서 통화'} > {label}",
+                           (bank_details or {}).get(key)))
+    if seal:
+        fields.extend([("회사 설정 > 발행자 > 서명자 이름", issuer_signer(doc)),
+                       ("회사 설정 > 발행자 > 영문 회사명", issuer_display_name(doc))])
+    for path, value in fields:
+        try:
+            _english(value)
+        except ValueError:
+            raise ValueError(f"XLSX_TEXT_FIELD:{path}") from None
+
+
 # 원본: reference/kekorea/Quotation_KEKOREA/agent/renderers.py _format_quantity
 def _format_quantity(value):
     try:
@@ -245,6 +285,7 @@ def _pdf_bytes(lines):
 
 # 원본: reference/kekorea/Quotation_KEKOREA/agent/renderers.py _xlsx_bytes(로고·직인 bytes 입력)
 def _xlsx_bytes(doc, bank_details=None, *, seal=None):
+    _validate_xlsx_text_fields(doc, bank_details, seal)
     rows = [[doc.get("document_type", "DRAFT"), "STATUS", doc.get("status", "DRAFT")],
             ["Currency", doc.get("currency") or "TBD", "Product Family", doc.get("product_family") or "TBD"],
             ["Document Number", doc.get("document_number") or "TBD", "Issue Date", doc.get("issue_date") or "TBD"],
