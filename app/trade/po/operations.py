@@ -4,10 +4,11 @@ from app.trade.common.results import document_result, editable_values
 from app.trade.po.models import POInput, POItem, PORepository
 from app.trade.common.counterparties import name_key
 from app.trade.common.models import DocumentError
+from app.trade.common.settings_confirmation import is_confirmed
 
 
-def prepare_po(values, context):
-    document = common.prepare_priced(values, context, "PO")
+def prepare_po(values, context, *, require_confirmation=False):
+    document = common.prepare_priced(values, context, "PO", require_confirmation=require_confirmation)
     document["bank"] = None
     return document
 
@@ -18,11 +19,11 @@ def result(document):
 
 
 def create(command: POInput, *, repository: PORepository):
-    return result(repository.create(prepare_po(command.model_dump(mode="json"), repository.context(command.currency))))
+    return result(repository.create(prepare_po(command.model_dump(mode="json"), repository.context(command.currency), require_confirmation=True)))
 
 
 def extract(text, *, repository: PORepository, extractor):
-    values = extractor(text)
+    values = {**extractor(text), "confirmed_settings": {}}
     return result(repository.create(prepare_po(values, repository.context(values.get("currency")))))
 
 
@@ -30,7 +31,7 @@ def revise(document_id, revision, command: POInput, *, repository: PORepository,
     previous = repository.get(document_id)
     common.check_revision(previous, revision)
     context = common.revision_context(previous, repository.context(command.currency), command.currency)
-    document = prepare_po(common.revision_values(previous, command), context)
+    document = prepare_po(common.revision_values(previous, command), context, require_confirmation=True)
     return result(repository.replace(document_id, revision, document, review_reference))
 
 
@@ -45,5 +46,5 @@ def refresh_settings(document_id, revision, *, repository: PORepository):
 def check(document):
     issuer = document.get("issuer") or {}
     issuer_key = name_key(issuer.get("legal_name_en") or issuer.get("company_name"))
-    if not issuer_key or issuer_key not in name_key((document.get("buyer") or {}).get("legal_name")):
+    if not is_confirmed(document, "buyer.legal_name") and (not issuer_key or issuer_key not in name_key((document.get("buyer") or {}).get("legal_name"))):
         raise DocumentError("PO_BUYER_REQUIRED", "PO 구매자는 발행 회사여야 합니다")

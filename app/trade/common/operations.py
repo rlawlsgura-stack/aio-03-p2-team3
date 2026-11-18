@@ -7,6 +7,8 @@ from app.trade.common.postprocess import apply_issuer_defaults, synchronize_quan
 from app.trade.common.pricing import build_trade_catalog, apply_verified_catalog_prices
 from app.trade.common.results import editable_values
 from app.trade.common.trade_documents import validate_and_calculate
+from app.trade.common.settings_confirmation import (complete_confirmed_defaults, confirm_settings_input,
+    current_value, is_confirmed, restore_unconfirmed_values, with_settings_issues)
 
 
 def calculate(draft):
@@ -18,8 +20,9 @@ def calculate(draft):
         raise DocumentError("NUMERIC_RANGE_EXCEEDED", "수량과 금액의 범위 또는 소수 자릿수를 확인하세요", 422) from error
 
 
-def prepare_priced(values, context, document_type):
+def prepare_priced(values, context, document_type, *, require_confirmation=False):
     draft = deepcopy(values)
+    settings_issues = confirm_settings_input(draft, context, document_type, required=require_confirmation)
     draft.update(document_type=document_type, doc_kind=document_type,
                  issuer=deepcopy(context.issuer), bank=deepcopy(context.bank))
     apply_issuer_defaults(draft, document_type, context.issuer)
@@ -30,17 +33,24 @@ def prepare_priced(values, context, document_type):
         if item.get("unit_price") is not None:
             item.setdefault("price_source", "User-confirmed transaction-specific override" if override else "Entered document value")
     synchronize_quantities(draft)
+    complete_confirmed_defaults(draft)
     apply_verified_catalog_prices(draft, build_trade_catalog(context.price_rows))
-    return calculate(draft)
+    restore_unconfirmed_values(draft, values, settings_issues)
+    return with_settings_issues(calculate(draft), settings_issues)
 
 
 def revision_values(previous, command):
-    """상품·통화가 바뀌면 이전 문서의 가격을 새 거래에 그대로 적용하지 않는다."""
+    """상품·통화 변경 때 이전 자동 단가만 다시 조회하고 새 입력은 확인 단계로 보낸다."""
     values = command.model_dump(mode="json")
     for index, item in enumerate(values["items"]):
         old = (previous.get("items") or [])[index] if index < len(previous.get("items") or []) else {}
         changed = any(item.get(key) != old.get(key) for key in ("product_name", "product_code", "capacity", "unit"))
-        if (previous.get("currency") != command.currency or changed) and not item.get("confirm_price_override"):
+        path = f"items.{index}.unit_price"
+        inherited_price = (old.get("master_price") is True
+                           and current_value(values, path) == current_value(previous, path)
+                           and path not in (values.get("confirmed_settings") or {}))
+        if ((previous.get("currency") != command.currency or changed) and inherited_price
+                and not item.get("confirm_price_override")):
             item["unit_price"] = None
     return values
 
@@ -70,7 +80,7 @@ def refresh_settings_values(previous, context, document_type, input_model, item_
     old_defaults = {"legal_name": old_name, **{key: old_issuer.get(key) for key in ("address", "contact", "phone", "email")}}
     party = values.setdefault(role, {})
     for key, value in defaults.items():
-        if value and (not party.get(key) or party.get(key) == old_defaults.get(key)):
+        if value and not is_confirmed(previous, f"{role}.{key}") and (not party.get(key) or party.get(key) == old_defaults.get(key)):
             party[key] = value
     for index, item in enumerate(values.get("items", [])):
         old_item = (previous.get("items") or [])[index] if index < len(previous.get("items") or []) else {}

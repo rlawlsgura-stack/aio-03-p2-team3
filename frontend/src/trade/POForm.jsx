@@ -32,7 +32,7 @@ export default function POForm({ token, draft, setDraft, step, fields = null, se
     onDirty()
     setDraft((previous) => ({ ...previous, items: previous.items.map((row, i) => i === index ? { ...row, [key]: value,
       ...(key === "quantity" ? { paid_quantity: value } : {}),
-      ...(["product_name","product_code","capacity","unit"].includes(key) ? { confirm_price_override: false } : {}) } : row) }))
+      ...(["product_name","product_code","capacity","unit","unit_price"].includes(key) ? { confirm_price_override: false } : {}) } : row) }))
   }
   function chooseSupplier(key) {
     const selected = settings?.counterparties.find((row) => row.company_key === key)
@@ -60,7 +60,7 @@ export default function POForm({ token, draft, setDraft, step, fields = null, se
         {[["contact","담당자"],["phone","전화"],["email","이메일"],["registration_details","등록 정보"]].map(([key,label]) =>
           <DocumentField key={key} label={label} value={draft[step]?.[key]} onChange={(value) => party(step,key,value)} />)}
       </div></details>}
-      {step === "buyer" && <p className="section-note">발행 회사는 <Link to="/settings">회사 설정</Link>에서 관리합니다. 원문에서 가져온 구매자도 수정할 수 있어요.</p>}
+      {step === "buyer" && <p className="section-note">발행 회사는 <Link to="/settings">회사 설정</Link>에서 관리합니다. 이 문서에 다른 구매자 정보를 사용하려면 수정한 뒤 저장할 때 확인해 주세요.</p>}
     </>}
     {step === "terms" && <><div className="settings-fields">
       {wanted("product_family") &&
@@ -110,7 +110,7 @@ export default function POForm({ token, draft, setDraft, step, fields = null, se
       </table></div>
       {!draft.items.length && <p className="pi-context">품목을 하나 이상 추가해 주세요.</p>}
       <button type="button" className="btn pi-add-item" disabled={draft.items.length >= 500} onClick={() => { onShowAll(); change("items", [...draft.items,newPOItem()]) }}>품목 추가</button>
-      <p className="section-note">가격 기준은 PCS·KG처럼 단가의 기준 단위입니다. 상품·통화·공급처·단위를 바꾸면 단가 확인이 해제됩니다. 무상 수량과 금액은 저장할 때 계산해요.</p>
+      <p className="section-note">가격 기준은 PCS·KG처럼 단가의 기준 단위입니다. 상품·통화·공급처·단위·단가를 바꾸면 단가 확인이 해제됩니다. 무상 수량과 금액은 저장할 때 계산해요.</p>
     </>}
   </fieldset>
 }

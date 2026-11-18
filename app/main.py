@@ -217,7 +217,10 @@ def create_app(settings: Settings | None = None, google=None,
 
     @app.exception_handler(DocumentError)
     def document_error(request: Request, error: DocumentError):
-        return JSONResponse({"error": {"code": error.code, "message": error.message}}, status_code=error.status_code)
+        payload = {"code": error.code, "message": error.message}
+        if error.details is not None:
+            payload["details"] = error.details
+        return JSONResponse({"error": payload}, status_code=error.status_code)
 
     @app.exception_handler(BearerAuthError)
     def bearer_auth_error(request: Request, error: BearerAuthError):

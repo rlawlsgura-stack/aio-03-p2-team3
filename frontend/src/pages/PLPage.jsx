@@ -10,6 +10,7 @@ import { emptyPL, PL_STEPS, plDraft, plNextScreen, plPayload } from "../trade/pl
 import ReviewPanel from "../trade/ReviewPanel"
 import RenderFailureHelp from "../trade/RenderFailureHelp"
 import MissingFieldsDialog, { updateMissingField } from "../trade/MissingFieldsDialog"
+import { saveTradeDocument } from "../trade/save-document"
 
 const STATUS = { needs_input: "입력 필요", ready: "검토 가능", issued: "발급 완료" }
 
@@ -180,18 +181,20 @@ function PLEditor() {
   function save() {
     perform(async (signal) => {
       if (modifying) {
-        const review = await apiFetch(`${base}/${resource.document_id}/reviews/${proposal.id}/decisions`, {
+        const review = await saveTradeDocument(`${base}/${resource.document_id}/reviews/${proposal.id}/decisions`, {
           token, signal, method: "POST", body: { action: "modify", revision: proposal.revision,
             content_hash: proposal.content_hash, document: plPayload(draft) } })
+        if (!review) return { document: null, review: null }
         if (review.document_type) return { document: review, review: null }
         const document = await apiFetch(`${base}/${resource.document_id}`, { token, signal })
         return { document, review }
       }
-      const document = await apiFetch(resource ? `${base}/${resource.document_id}` : base, {
+      const document = await saveTradeDocument(resource ? `${base}/${resource.document_id}` : base, {
         token, signal, method: resource ? "PUT" : "POST",
         body: resource ? { revision: resource.revision, document: plPayload(draft) } : plPayload(draft) })
       return { document, review: null }
     }, ({ document, review }) => {
+      if (!document) return
       accept(document, review)
       if (!documentId) {
         created.current = String(document.document_id)
@@ -256,7 +259,7 @@ function PLEditor() {
     </div>
     {error && <div className="settings-load-error" role="alert" tabIndex={-1} ref={errorBox}><p>{error.status === 401 ? "로그인 확인이 필요합니다. 입력 내용을 별도로 보관한 뒤 다시 로그인해 주세요." : error.message}</p>
       {error?.code === "RENDER_FAILED" && <RenderFailureHelp />}
-      {error.status === 409 && <p>최신본을 다시 읽고 새로 검토해 주세요. 다시 읽으면 현재 입력을 교체하므로, 필요한 내용은 먼저 복사해 두세요.</p>}</div>}
+      {error.status === 409 && error.code !== "SETTINGS_CONFIRMATION_REQUIRED" && <p>최신본을 다시 읽고 새로 검토해 주세요. 다시 읽으면 현재 입력을 교체하므로, 필요한 내용은 먼저 복사해 두세요.</p>}</div>}
     {notice && <p className="form-success" role="status">{notice}</p>}
     {loading && <p role="status">PL와 검토 내용을 불러오는 중입니다…</p>}
     {!loading && (!documentId || current) && <>

@@ -23,7 +23,7 @@ export function piPayload(draft) {
 
 export const PI_STEPS = [
   { key: "buyer", label: "거래처", question: "어느 회사에 보낼까요?", note: "구매자의 영문 회사명과 주소를 알려주세요." },
-  { key: "seller", label: "판매자", question: "판매자 정보를 확인해 주세요", note: "PI의 판매자는 문서를 발행하는 우리 회사입니다." },
+  { key: "seller", label: "판매자", question: "판매자 정보를 확인해 주세요", note: "이 문서의 발행 회사입니다. 설정과 다른 정보도 저장할 때 확인 후 사용할 수 있어요." },
   { key: "items", label: "품목", question: "어떤 상품을 얼마나 보내나요?", note: "품목과 수량·단가를 표에서 바로 수정하세요." },
   { key: "terms", label: "거래 조건", question: "거래 조건을 알려주세요", note: "문서번호와 납품·지급 조건을 확인하면 작성이 끝나요." },
 ]

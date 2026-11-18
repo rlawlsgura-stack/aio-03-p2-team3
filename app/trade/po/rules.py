@@ -1,8 +1,11 @@
 """PO 발행사 역할과 지급 조건."""
 from app.trade.common.counterparties import name_key
+from app.trade.common.settings_confirmation import is_confirmed
 
 
 def validate_header(data, issuer, block):
+    if is_confirmed(data, "buyer.legal_name"):
+        issuer = name_key((data.get("buyer") or {}).get("legal_name"))
     if not issuer:
         block("Issuing company name is not configured")
     else:

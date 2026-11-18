@@ -51,6 +51,8 @@ def prepare_document(**inputs) -> dict:
     기존 문서 수정에는 document_id와 최신 revision이 필요하다. 단가와 근거를 지어내지 않는다.
     """
     inputs = deepcopy(inputs)
+    if isinstance(inputs.get("values"), dict):
+        inputs["values"].pop("confirmed_settings", None)
     for item in (inputs.get("values") or {}).get("items", []):
         if isinstance(item, dict):
             item["confirm_price_override"] = False

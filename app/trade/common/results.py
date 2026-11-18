@@ -4,6 +4,8 @@ from app.trade.common.review_fields import missing_review_fields
 
 def editable_values(document, fields, item_fields):
     values = {key: document.get(key) for key in fields if key not in {"items", "buyer", "seller"}}
+    if "confirmed_settings" in fields:
+        values["confirmed_settings"] = document.get("confirmed_settings") or {}
     for role in ("buyer", "seller"):
         values[role] = {key: (document.get(role) or {}).get(key) for key in Party.model_fields}
     values["items"] = [{**{key: item[key] for key in item_fields

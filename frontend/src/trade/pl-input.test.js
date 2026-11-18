@@ -4,6 +4,7 @@ import { canApprovePacking, plDraft, plMissing, plNextScreen, plPayload } from "
 
 test("PL은 원본 표기·서로 다른 단위·두 포장 배열을 보존하고 가격·승인 상태는 전송하지 않는다", () => {
   const draft = plDraft({ product_family: "other", document_number: "PL-DEMO", shipment_reference: "SHIP",
+    confirmed_settings: { "seller.legal_name": "Demo seller" },
     incoterms: "FOB Busan", buyer: { legal_name: "Demo buyer", address: "Buyer address" }, seller: { legal_name: "Demo seller", address: "Seller address" },
     container_count: "2 x 40FT", declared_total_quantity: "1,000 PCS", declared_net_weight_kg: "12.000000000001 kg",
     items: [{ product_name: "Demo A", quantity: "1000", unit: "PCS", unit_price: "9", volume_cbm: "1.2" }, { product_name: "Demo B", quantity: "50", unit: "KG" }],
@@ -13,6 +14,7 @@ test("PL은 원본 표기·서로 다른 단위·두 포장 배열을 보존하�
   assert.equal(payload.declared_net_weight_kg, "12.000000000001 kg")
   assert.deepEqual(payload.items.map((row) => row.unit), ["PCS", "KG"])
   assert.equal(payload.packages.length, 1)
+  assert.deepEqual(payload.confirmed_settings, { "seller.legal_name": "Demo seller" })
   assert(!("unit_price" in payload.items[0]) && !("rowId" in payload.packages[0]))
   assert(!("packing_totals" in payload) && !("currency" in payload))
   draft.container_count = ""

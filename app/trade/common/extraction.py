@@ -64,6 +64,8 @@ def wire_schema(model: type[PydanticBaseModel]) -> type[PydanticBaseModel]:
     """LLM에 보낼 스키마. 숫자는 문자열, 문자열/리스트 제약(pattern·max_length)은 없앤다."""
     fields = {}
     for name, info in model.model_fields.items():
+        if name == "confirmed_settings":
+            continue
         annotation = _wire_annotation(info.annotation)
         default = str(info.default) if isinstance(info.default, Decimal) else info.default
         if info.default_factory is not None:
@@ -93,6 +95,8 @@ def extract_facts(prompt, schema: type[PydanticBaseModel], text: str, backend=No
         raise DocumentError("AI_INVALID_OUTPUT",
                             "추출 결과를 문서 형식으로 바꾸지 못했습니다. 다시 시도하거나 직접 입력하세요", 503) from None
     draft = validated.model_dump(mode="json")
+    if "confirmed_settings" in draft:
+        draft["confirmed_settings"] = {}
     draft["source_notes"] = []
     for item in draft.get("items", []):
         if "confirm_price_override" in item:

@@ -127,12 +127,14 @@ def test_pi_input_rejects_server_fields_and_inexact_float():
 
 def test_pi_langchain_cannot_authorize_price_override_or_bypass_evidence():
     values = pi_input().model_dump(mode="json")
+    values["confirmed_settings"] = {"buyer.legal_name": "Acme Trading", "items.0.unit_price": "8"}
     values["items"][0].update(unit_price="8", confirm_price_override=True,
                               product_code="INVENTED-CODE", source="Virtual Serum 10 PCS at USD 8")
     values["source_notes"] = ["Virtual Serum"]
     fake = FakeLLM([values])
     with use_backend(fake):
         draft = langchain_extract_pi("Virtual Serum 10 PCS at USD 8")
+    assert draft["confirmed_settings"] == {}
     assert draft["items"][0]["confirm_price_override"] is False
     assert any("product code" in issue for issue in draft["conflicts"])
     assert any("Buyer address" in issue for issue in draft["conflicts"])

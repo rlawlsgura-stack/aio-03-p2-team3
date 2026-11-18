@@ -143,6 +143,7 @@ def _party_labels(rows, party_field, product_id):
 def apply_catalog_product_matches(draft, catalog=None):
     """Attach confident catalog product identities without changing document prices."""
     from app.trade.pi.samples import is_manual_sample
+    from app.trade.common.settings_confirmation import product_confirmed
     catalog = catalog if catalog is not None else _empty_catalog()
     products = catalog.get("products", [])
     product_ids = {product.get("id") for product in products}
@@ -163,7 +164,7 @@ def apply_catalog_product_matches(draft, catalog=None):
             and not any(match["status"] in {"matched", "suggested", "ambiguous"} for match in matches)):
         return draft
 
-    for item, match in zip(items, matches):
+    for index, (item, match) in enumerate(zip(items, matches)):
         if is_manual_sample(draft, item):
             continue
         if match["status"] == "matched":
@@ -175,6 +176,8 @@ def apply_catalog_product_matches(draft, catalog=None):
 
         if item.get("product_id") in product_ids:
             item.pop("product_id", None)
+        if product_confirmed(draft, index):
+            continue
         name = item.get("product_name") or "item"
         suggestions = match.get("suggestions", [])
         if suggestions:
@@ -200,6 +203,7 @@ def apply_verified_catalog_prices(draft, catalog=None):
     if draft.get("document_type") in {"CI", "PL"}:
         return apply_catalog_product_matches(draft, catalog)
     from app.trade.pi.samples import is_manual_sample
+    from app.trade.common.settings_confirmation import is_confirmed, price_confirmed, product_confirmed
     catalog = catalog if catalog is not None else _empty_catalog()
     is_purchase_order = draft.get("document_type") == "PO"
     # Recompute catalog-owned warnings after the user completes buyer/product/currency fields.
@@ -221,8 +225,11 @@ def apply_verified_catalog_prices(draft, catalog=None):
         ]
     products = catalog.get("products", [])
     items = draft.get("items", [])
+    confirmed_prices = [price_confirmed(draft, index) for index, _ in enumerate(items)]
     if is_purchase_order:
-        for item in items:
+        for index, item in enumerate(items):
+            if is_confirmed(draft, f"items.{index}.price_basis"):
+                continue
             basis = str(item.get("price_basis") or "").strip()
             basis = re.sub(r"^(?:USD|KRW|EUR|CNY)\s*(?:/\s*|PER\s+)?", "", basis, flags=re.I)
             basis = re.sub(r"^PER\s+", "", basis, flags=re.I)
@@ -261,25 +268,32 @@ def apply_verified_catalog_prices(draft, catalog=None):
     if not party_matches and draft.get("_catalog_currency_inferred"):
         draft["currency"] = None
         draft.pop("_catalog_currency_inferred", None)
-    for item, match in zip(items, exact_matches):
+    for index, (item, match) in enumerate(zip(items, exact_matches)):
         if is_manual_sample(draft, item):
             item['master_price'] = False
             continue
         user_entered_price = str(item.get("price_source") or "").casefold().startswith(
             ("user-entered", "user supplied", "user-provided"))
-        if is_purchase_order and not item.get("price_override_confirmed") and not user_entered_price:
+        confirmed_price = confirmed_prices[index]
+        if is_purchase_order and not item.get("price_override_confirmed") and not user_entered_price and not confirmed_price:
             item["unit_price"] = None
             item["price_source"] = None
         if draft.get("product_family") != "cosmetics":
             item["master_price"] = False
             continue
         if match["status"] != "matched":
-            if (is_purchase_order and not user_entered_price) or item.get("master_price") is True:
+            if confirmed_price or (item.get("price_override_confirmed") and item.get("unit_price") not in (None, "")):
+                item["price_override_confirmed"] = True
+                item["price_source"] = "User-confirmed transaction-specific override"
+                item.pop("product_id", None)
+            elif (is_purchase_order and not user_entered_price) or item.get("master_price") is True:
                 item["unit_price"] = None
                 item["price_source"] = None
                 item.pop("price_override_confirmed", None)
                 item.pop("product_id", None)
             item["master_price"] = False
+            if product_confirmed(draft, index):
+                continue
             if match["status"] == "suggested":
                 suggestions = match.get("suggestions", [])
                 if suggestions:
@@ -307,6 +321,10 @@ def apply_verified_catalog_prices(draft, catalog=None):
         if match.get("confirmation") and match["confirmation"] not in pending:
             pending.append(match["confirmation"])
         if not party_matches:
+            if confirmed_price or (item.get("price_override_confirmed") and item.get("unit_price") not in (None, "")):
+                item.update(master_price=False, price_override_confirmed=True,
+                            price_source="User-confirmed transaction-specific override")
+                continue
             if item.get("master_price") is True:
                 item["unit_price"] = None
                 item["price_source"] = None
@@ -324,6 +342,10 @@ def apply_verified_catalog_prices(draft, catalog=None):
         price = resolve_price(product["id"], catalog, "purchase" if draft.get("document_type") == "PO" else "sale",
                               currency, stored_party_key)
         if not price:
+            if confirmed_price or (item.get("price_override_confirmed") and item.get("unit_price") not in (None, "")):
+                item.update(master_price=False, price_override_confirmed=True,
+                            price_source="User-confirmed transaction-specific override")
+                continue
             if is_purchase_order and not user_entered_price:
                 item["unit_price"] = None
                 item["price_source"] = None
@@ -343,14 +365,16 @@ def apply_verified_catalog_prices(draft, catalog=None):
         try:
             if provided not in (None, ""):
                 candidate_amount = Decimal(str(provided))
-                if candidate_amount.is_finite() and candidate_amount > 0:
+                if candidate_amount.is_finite() and (candidate_amount > 0 or confirmed_price or item.get("price_override_confirmed")):
                     provided_amount = candidate_amount
         except (InvalidOperation, TypeError, ValueError):
             pass
-        if is_purchase_order and not item.get("price_override_confirmed"):
+        if is_purchase_order and not item.get("price_override_confirmed") and not confirmed_price:
             provided_amount = None
         price_differs = (provided_amount is not None and
                          provided_amount != Decimal(str(price["unit_price"])))
+        if price_differs and confirmed_price:
+            item["price_override_confirmed"] = True
         if item.get("price_override_confirmed"):
             draft["conflicts"] = [c for c in draft.get("conflicts", [])
                                   if not (product.get("item_name", "") in c and "stated price differs from the verified catalog" in c)]
@@ -363,8 +387,8 @@ def apply_verified_catalog_prices(draft, catalog=None):
             catalog_basis = str(price.get("price_basis") or "").strip()
             catalog_basis = re.sub(r"^(?:USD|KRW|EUR|CNY)\s*(?:/\s*|PER\s+)?", "", catalog_basis, flags=re.I)
             catalog_basis = re.sub(r"^PER\s+", "", catalog_basis, flags=re.I)
-            if is_purchase_order:
-                item["price_basis"] = catalog_basis or item.get("unit")
+            if is_purchase_order and not is_confirmed(draft, f"items.{index}.price_basis"):
+                item["price_basis"] = catalog_basis or item.get("price_basis") or item.get("unit")
             elif not item.get("price_basis"):
                 item["price_basis"] = catalog_basis or item.get("unit")
             source_row = price.get("source_row")

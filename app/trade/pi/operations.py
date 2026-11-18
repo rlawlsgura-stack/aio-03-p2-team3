@@ -9,7 +9,7 @@ from app.trade.pi.models import PIInput, PIItem, PIRepository
 from app.trade.pi.samples import update_sample
 
 
-def prepare_pi(values: dict, context: DocumentContext) -> dict:
+def prepare_pi(values: dict, context: DocumentContext, *, require_confirmation=False) -> dict:
     draft = deepcopy(values)
     for item in draft.get("items", []):
         if item.get("is_sample") is True:
@@ -18,7 +18,7 @@ def prepare_pi(values: dict, context: DocumentContext) -> dict:
                           unit=item.get("unit"), price=item.get("unit_price"))
             if item.get("discount_percent") is None:
                 item["discount_percent"] = "0"
-    result = common.prepare_priced(draft, context, "PI")
+    result = common.prepare_priced(draft, context, "PI", require_confirmation=require_confirmation)
     for key in ("BENEFICIARY", "BANK_NAME", "BRANCH", "SWIFT", "ACCOUNT_NUMBER", "BANK_ADDRESS"):
         if not (context.bank or {}).get(key):
             result["blocking_issues"].append(f"PI bank detail required: {key}")
@@ -34,12 +34,12 @@ def pi_result(document: dict) -> DocumentResult:
 
 def create_pi(command: PIInput, *, repository: PIRepository) -> DocumentResult:
     values = command.model_dump(mode="json")
-    document = prepare_pi(values, repository.context(command.currency))
+    document = prepare_pi(values, repository.context(command.currency), require_confirmation=True)
     return pi_result(repository.create(document))
 
 
 def extract_pi(text: str, *, repository: PIRepository, extractor: Callable[[str], dict]) -> DocumentResult:
-    values = extractor(text)
+    values = {**extractor(text), "confirmed_settings": {}}
     document = prepare_pi(values, repository.context(values.get("currency")))
     return pi_result(repository.create(document))
 
@@ -66,9 +66,9 @@ def revise_pi(document_id: int, revision: int, command: PIInput, *, repository: 
     previous = repository.get(document_id)
     if previous["revision"] != revision:
         raise DocumentError("REVISION_CONFLICT", "최신 PI를 다시 확인하세요")
-    values = common.revision_values(previous, command)
     context = common.revision_context(previous, repository.context(command.currency), command.currency)
-    document = prepare_pi(values, context)
+    values = common.revision_values(previous, command)
+    document = prepare_pi(values, context, require_confirmation=True)
     if review_reference is not None:
         return pi_result(repository.replace(document_id, revision, document, review_reference))
     return pi_result(repository.replace(document_id, revision, document))

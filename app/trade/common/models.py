@@ -52,6 +52,7 @@ class DocumentInput(InputModel):
     remarks: Text | None = None
     ship_to: Text | None = None
     bill_to: Text | None = None
+    confirmed_settings: dict[Annotated[str, Field(max_length=100)], Text] = Field(default_factory=dict, max_length=4000)
 
 
 class PricedItem(InputModel):
@@ -115,6 +116,7 @@ class DocumentRepository(Protocol):
 
 
 class DocumentError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 409):
+    def __init__(self, code: str, message: str, status_code: int = 409, *, details: dict | None = None):
         super().__init__(message)
         self.code, self.message, self.status_code = code, message, status_code
+        self.details = details

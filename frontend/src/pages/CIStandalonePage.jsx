@@ -11,6 +11,7 @@ import MissingFieldsDialog, { updateMissingField } from "../trade/MissingFieldsD
 import AIInput from "../trade/AIInput"
 import { emptyPI, piDraft, piPayload } from "../trade/pi-input"
 import { standaloneCINext } from "../trade/ci-input"
+import { saveTradeDocument } from "../trade/save-document"
 
 const steps = [["buyer", "거래처"], ["seller", "판매자"], ["items", "품목"], ["terms", "거래·선적 조건"]]
 const base = "/trade/ci"
@@ -127,15 +128,17 @@ function StandaloneEditor() {
   function save() {
     perform(async (signal) => {
       if (modifying) {
-        const review = await apiFetch(`${base}/${resource.document_id}/reviews/${proposal.id}/decisions`, { token, signal, method: "POST",
+        const review = await saveTradeDocument(`${base}/${resource.document_id}/reviews/${proposal.id}/decisions`, { token, signal, method: "POST",
           body: { action: "modify", revision: proposal.revision, content_hash: proposal.content_hash, document: payload(draft) } })
+        if (!review) return { document: null, review: null }
         if (review.document_type) return { document: review, review: null }
         return { document: await apiFetch(`${base}/${resource.document_id}`, { token, signal }), review }
       }
-      const document = await apiFetch(resource ? `${base}/${resource.document_id}` : base, { token, signal, method: resource ? "PUT" : "POST",
+      const document = await saveTradeDocument(resource ? `${base}/${resource.document_id}` : base, { token, signal, method: resource ? "PUT" : "POST",
         body: resource ? { revision: resource.revision, document: payload(draft) } : payload(draft) })
       return { document, review: null }
     }, ({ document, review }) => {
+      if (!document) return
       accept(document, review)
       if (!documentId) {
         created.current = String(document.document_id)
@@ -182,7 +185,7 @@ function StandaloneEditor() {
     <div className="page-head"><div><h1 className="page-title">CI 직접 작성</h1><p className="page-sub">PI 없이 거래 내용과 선적 정보를 직접 입력합니다.</p></div><Link className="btn" to="/trade/ci">CI 작성 방법 선택</Link></div>
     <div className="editor-toolbar"><span className="document-status">{current ? `${statuses[current.status] ?? current.status} · 버전 ${current.revision}` : "새 CI"}</span>
       {documentId && <button className="btn" type="button" disabled={busy || loading} onClick={() => setReload((value) => value + 1)}>최신본 다시 읽기</button>}</div>
-    {error && <div className="settings-load-error" role="alert" tabIndex={-1} ref={errorBox}><p>{error.message}</p>{error.status === 409 && <p>입력은 보존했습니다. 최신본을 다시 읽으면 현재 입력이 교체됩니다. 필요한 내용은 먼저 복사해 두세요.</p>}{error?.code === "RENDER_FAILED" && <RenderFailureHelp />}</div>}
+    {error && <div className="settings-load-error" role="alert" tabIndex={-1} ref={errorBox}><p>{error.message}</p>{error.status === 409 && error.code !== "SETTINGS_CONFIRMATION_REQUIRED" && <p>입력은 보존했습니다. 최신본을 다시 읽으면 현재 입력이 교체됩니다. 필요한 내용은 먼저 복사해 두세요.</p>}{error?.code === "RENDER_FAILED" && <RenderFailureHelp />}</div>}
     {notice && <p className="form-success" role="status">{notice}</p>}
     {settingsError && <p className="section-note" role="status">기본 설정을 불러오지 못했습니다. 직접 입력할 수 있습니다. {settingsError}</p>}
     {loading && <p role="status">CI를 불러오는 중입니다.</p>}
@@ -211,7 +214,7 @@ function StandaloneEditor() {
           <section className="pi-question"><h2 tabIndex={-1} ref={question}>전체 내용을 확인해 주세요</h2>
             {current.issues.length > 0 && <ul className="document-issues">{current.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>}
             {current.missing_fields.length > 0 && <p className="form-error">보완할 항목: {current.missing_fields.join(", ")}</p>}
-            {current.missing_fields.length > 0 && <div className="pi-missing"><p>필요한 입력값만 팝업에서 보완할 수 있습니다.</p>
+            {(current.missing_fields.length > 0 || current.issues.length > 0) && <div className="pi-missing"><p>필요한 입력값만 팝업에서 확인하거나 보완할 수 있습니다.</p>
               <button className="btn" type="button" disabled={!enabled} onClick={() => setQuickFixOpen(true)}>누락 항목 입력</button></div>}
             <DocumentSnapshot kind="ci" document={current.document} />
             <fieldset className="editor-checks" disabled={busy || current.status !== "ready"}><legend>발급 형식</legend>{["pdf", "xlsx"].map((format) => <label key={format}><input type="checkbox" checked={formats.includes(format)} onChange={(event) => setFormats((previous) => event.target.checked ? [...previous, format] : previous.filter((value) => value !== format))} /> {format.toUpperCase()}</label>)}</fieldset>

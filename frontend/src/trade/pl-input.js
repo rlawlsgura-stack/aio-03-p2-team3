@@ -13,16 +13,18 @@ export function emptyPL() {
 }
 export function plDraft(input = {}) {
   return { ...emptyPL(), ...Object.fromEntries(HEADER_FIELDS.map((key) => [key, input[key] ?? (key === "product_family" ? null : "")])),
+    confirmed_settings: { ...input.confirmed_settings },
     buyer: { ...input.buyer }, seller: { ...input.seller }, items: (input.items ?? []).map(newPLItem), packages: (input.packages ?? []).map(newPackage) }
 }
 export function plPayload(draft) {
   const pick = (row, fields) => Object.fromEntries(fields.map((key) => [key, row[key] === "" || row[key] == null ? null : row[key]]))
-  return { ...pick(draft, HEADER_FIELDS), buyer: pick(draft.buyer, PARTY_FIELDS), seller: pick(draft.seller, PARTY_FIELDS),
+  return { ...pick(draft, HEADER_FIELDS), confirmed_settings: { ...draft.confirmed_settings },
+    buyer: pick(draft.buyer, PARTY_FIELDS), seller: pick(draft.seller, PARTY_FIELDS),
     items: draft.items.map((row) => pick(row, ITEM_FIELDS)), packages: draft.packages.map((row) => pick(row, PACKAGE_FIELDS)) }
 }
 export const PL_STEPS = [
   { key: "buyer", label: "거래처", question: "어느 회사에 보내나요?", note: "구매자의 영문 회사명과 주소를 알려주세요." },
-  { key: "seller", label: "판매자", question: "판매자 정보를 확인해 주세요", note: "발행 회사의 판매자 정보를 확인해 주세요." },
+  { key: "seller", label: "판매자", question: "판매자 정보를 확인해 주세요", note: "이 문서의 발행 회사입니다. 설정과 다른 정보도 저장할 때 확인 후 사용할 수 있어요." },
   { key: "packing", label: "품목·포장", question: "어떻게 포장해서 보내나요?", note: "품목 수량과 포장 행을 입력해 주세요. 서로 다른 단위는 나누어 확인해요." },
   { key: "terms", label: "선적 조건·합계", question: "선적 조건과 원본 합계를 알려주세요", note: "원본에 적힌 합계와 단위·컨테이너 표기를 그대로 입력해 주세요." },
 ]

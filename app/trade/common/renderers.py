@@ -5,8 +5,8 @@
 이 모듈의 _xlsx_bytes는 문서 API의 Excel 발급도 담당한다. HTML·검토 PDF 보조는
 테스트·사본 비교 검증에서 사용한다(docs/CONTRACT.md 15.4절).
 원본과 다른 점:
-- 발행 회사 이름·서명자를 원본 고정 문구 대신 문서 초안의 issuer 스냅샷(legal_name_en →
-  company_name, 서명자 ceo_name)에서 읽는다[임시: 협의 1].
+- 발행 회사 이름은 사용자가 확인한 문서의 발행자 이름을 우선하고, 그 밖에는 issuer
+  스냅샷(legal_name_en → company_name)을 쓴다. 서명자는 스냅샷의 ceo_name을 쓴다.
 - document_lines·_xlsx_bytes의 PL 합계를 reconcile_packing 직접 호출 대신
   doc["packing_totals"]에서 읽는다(docs/CONTRACT.md 15.5절).
 - render_files의 로고·직인 입력을 파일 경로에서 PNG bytes로 바꾼다.

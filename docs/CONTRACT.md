@@ -1008,7 +1008,9 @@ TradeDocDraft(TypedDict, total=False):
 ## 16. 독립 문서 API와 사용자 검토
 
 - JSON API는 기존 메일 그래프 밖의 `app/trade/` 도메인 업무를 호출한다. 문서별 경로는 `/api/trade/{pi|po|ci|pl}`이며 상세 입력·응답은 FastAPI OpenAPI(`/docs`)가 코드와 함께 제공한다. 모든 조회/다운로드는 세션 소유자 범위이며 변경 요청은 `/api/session`에서 발급한 CSRF 토큰을 요구한다. 이 문단의 세션·CSRF 규칙은 [현재 구현]이며 9.1절 전환표의 legacy 행이다(같은 경로의 React Bearer 전용 연결과 파일 저장 목표는 16.3절).
-- 입력에는 서버의 상태·계산 결과·가격 인증·승인 표시를 허용하지 않는다. 정확한 숫자는 Decimal 문자열이다. 직접 입력과 LangChain 추출은 같은 업무 계산을 거친다. AI는 거래 단가 변경을 승인할 수 없다.
+- 입력에는 서버의 상태·계산 결과·가격 인증·발급 승인 표시를 허용하지 않는다. 정확한 숫자는 Decimal 문자열이다. 직접 입력과 LangChain 추출은 같은 업무 계산을 거친다. AI는 거래 단가 변경이나 설정과 다른 값의 사용을 승인할 수 없다.
+- PI·PO·단독 CI·PL의 수기 생성/수정은 회사·거래처·배송지·품목·단가의 설정 차이를 저장 전에 확인한다. 확인이 필요하면 `409 SETTINGS_CONFIRMATION_REQUIRED`와 항목별 안내, `error.details.confirmed_settings`를 반환하며 문서나 revision을 저장하지 않는다. React는 확인/취소 창을 띄우고 확인했을 때만 같은 입력의 `confirmed_settings`에 서버가 반환한 전체 경로·값 map을 넣어 다시 요청한다. 취소하면 입력과 기존 문서를 보존한다. 각 확인은 현재 경로·값과 일치해야 하고 가격은 통화·상대방·품목 맥락도 일치해야 한다. 값을 다시 바꾸면 이전 확인으로 허용하지 않는다. AI 추출과 마스터 도구는 확인 map을 비우며, 추출한 미확인 값은 `needs_input`에서 사용자가 확인한다.
+- 확인한 회사명·거래처 별칭·직접 입력 단가는 해당 문서에서 보존하고 PDF/XLSX의 발행 회사명에도 적용한다. 이때 15.4절의 설정 발행사 이름 일치와 카탈로그 일치 조건만 해당 확인값에 한해 예외로 한다. 설정 원본·기존 발급 파일, 필수값·영문 표기·숫자 범위·계산·PI 계좌·PL 합계·revision/해시·소유권 검사는 유지한다. PI 연결 CI는 승인 PI의 확인된 거래값을 이어받고 원본 버전·금액 검증을 유지한다.
 - `trade_document_versions`는 문서 revision별 불변 초안을 저장한다. 문서 수정은 기대 revision을 조건으로 갱신하며 대기 제안을 무효화한다. `trade_proposals`는 확인할 문서·버전·출력 형식·직인/로고 bytes 및 해시를 고정한다. 선택 요청의 문서 ID·제안 ID·revision·내용 해시가 모두 일치해야 한다.
 - `approve` [계획 10절 적용, 2026-11-12]: ready/current인 문서를 issued로 만든다. PDF/XLSX bytes는 먼저 모든 형식을 Storage에 저장한 뒤(16.3절 발급 파일 절차) SQL 트랜잭션에서 revision·제안·`trade_artifacts` 파일 참조(object key·크기)를 함께 확정한다. 중복·동시 승인은 같은 파일을 반환한다. `cancel`: 제안을 cancelled로 종료하며 문서나 파일을 발급하지 않는다. `modify`: 기존 제안을 superseded/modify로 기록하고 문서를 새 revision으로 만든 뒤 새 검토를 요구한다. 미완성 수정은 needs_input으로 돌아온다.
 - 계좌·회사·이미지 설정 변경은 이미 제안한 내용과 승인 파일을 바꾸지 않는다. 출력 실패 시 pending/ready를 보존해 명시적으로 재시도할 수 있다. 문서 확정 API는 Gmail을 호출하지 않는다. 기존 메일 발송 승인과 문서 발급은 서로 다른 동작이다.

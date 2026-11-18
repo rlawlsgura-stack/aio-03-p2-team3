@@ -9,6 +9,7 @@ import { emptyPI, PI_STEPS, piDraft, piNextScreen, piPayload } from "../trade/pi
 import ReviewPanel from "../trade/ReviewPanel"
 import RenderFailureHelp from "../trade/RenderFailureHelp"
 import MissingFieldsDialog, { updateMissingField } from "../trade/MissingFieldsDialog"
+import { saveTradeDocument } from "../trade/save-document"
 
 const STATUS = { needs_input: "입력 필요", ready: "검토 가능", issued: "발급 완료" }
 
@@ -150,18 +151,20 @@ export default function PIPage() {
   function save() {
     perform(async (signal) => {
       if (modifying) {
-        const review = await apiFetch(`${base}/${resource.document_id}/reviews/${proposal.id}/decisions`, {
+        const review = await saveTradeDocument(`${base}/${resource.document_id}/reviews/${proposal.id}/decisions`, {
           token, signal, method: "POST", body: { action: "modify", revision: proposal.revision,
             content_hash: proposal.content_hash, document: piPayload(draft) } })
+        if (!review) return { document: null, review: null }
         if (review.document_type) return { document: review, review: null }
         const document = await apiFetch(`${base}/${resource.document_id}`, { token, signal })
         return { document, review }
       }
-      const document = await apiFetch(resource ? `${base}/${resource.document_id}` : base, {
+      const document = await saveTradeDocument(resource ? `${base}/${resource.document_id}` : base, {
         token, signal, method: resource ? "PUT" : "POST",
         body: resource ? { revision: resource.revision, document: piPayload(draft) } : piPayload(draft) })
       return { document, review: null }
     }, ({ document, review }) => {
+      if (!document) return
       accept(document, review)
       if (!documentId) navigate(`/trade/pi/${document.document_id}`, { replace: true })
       else setNotice("저장했어요. 계산된 금액과 전체 내용을 확인해 주세요.")
@@ -214,7 +217,7 @@ export default function PIPage() {
     </div>
     {error && <div className="settings-load-error" role="alert" tabIndex={-1} ref={errorBox}><p>{error.status === 401 ? "로그인 확인이 필요합니다. 입력 내용을 별도로 보관한 뒤 다시 로그인해 주세요." : error.message}</p>
       {error?.code === "RENDER_FAILED" && <RenderFailureHelp hasUnsupportedRemarks={hasUnsupportedRemarks} onEditTerms={() => { setError(null); edit("terms") }} />}
-      {error.status === 409 && error.code !== "PI_NUMBER_DUPLICATE" && <p>최신본을 다시 읽고 새로 검토해 주세요. 다시 읽으면 현재 입력을 교체하므로, 필요한 내용은 먼저 복사해 두세요.</p>}</div>}
+      {error.status === 409 && !["PI_NUMBER_DUPLICATE", "SETTINGS_CONFIRMATION_REQUIRED"].includes(error.code) && <p>최신본을 다시 읽고 새로 검토해 주세요. 다시 읽으면 현재 입력을 교체하므로, 필요한 내용은 먼저 복사해 두세요.</p>}</div>}
     {notice && <p className="form-success" role="status">{notice}</p>}
     {previousFiles.length > 0 && <section className="pi-question" aria-label="이전 발급 파일">
       <h2>설정 변경 전 발급 파일</h2><p className="section-note">이 파일은 기존 설정으로 발급된 그대로 보존됩니다.</p>

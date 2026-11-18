@@ -49,6 +49,7 @@ def po_values():
 
 def pl_values():
     source = packing_example()
+    source["seller"] = {"legal_name": "Testworks Trading Co", "address": "7 Test-ro, Seoul"}
     return PLInput.model_validate({key: value for key, value in source.items() if key in PLInput.model_fields}).model_dump(mode="json")
 
 
@@ -133,9 +134,16 @@ def test_standalone_ci_uses_sale_price_and_is_issued_without_pi(pi_client):
     values.update(mode="standalone", document_number="CI-SELF", shipment_reference="SHIP", country_of_origin="Korea")
     unconfirmed = deepcopy(values)
     unconfirmed["items"][0].update(unit_price="9", source="unverified input")
-    rejected_price = post(pi_client, "/api/trade/ci", unconfirmed)
-    assert rejected_price["status"] == "needs_input"
-    assert pi_client.post(f"/api/trade/ci/{rejected_price['document_id']}/reviews", json={"revision": 1}).status_code == 409
+    response = pi_client.post("/api/trade/ci", json=unconfirmed)
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "SETTINGS_CONFIRMATION_REQUIRED"
+    assert pi_client.get("/api/trade/ci").json() == []
+    unconfirmed["confirmed_settings"] = error["details"]["confirmed_settings"]
+    confirmed_price = post(pi_client, "/api/trade/ci", unconfirmed)
+    assert confirmed_price["status"] == "ready"
+    assert confirmed_price["document"]["items"][0]["unit_price"] == "9"
+    assert confirmed_price["document"]["total"] == "90.00"
     document = post(pi_client, "/api/trade/ci", values)
     assert document["status"] == "ready", document
     assert document["document"]["total"] == "80.00"
@@ -265,7 +273,7 @@ def test_domain_langchain_entry_points_are_used_by_http(pi_client, kind):
         text = "Acme Trading 1 Fiction Ave, Seoul PO-100 FOB Busan T/T Virtual Serum 10 PCS USD discount 0"
     elif kind == "pl":
         values = pl_values()
-        text = "DRAFT Buyer Address Testworks Trading Co. Ltd Seoul EXW Cyberjaya Reference "
+        text = "DRAFT Buyer Address Testworks Trading Co 7 Test-ro, Seoul EXW Cyberjaya Reference "
         for item in values["items"]:
             item["source"] = f"{item['product_name']} {item['quantity']} {item['unit']}"
             text += item["source"] + " "

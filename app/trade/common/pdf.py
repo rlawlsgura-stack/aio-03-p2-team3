@@ -4,8 +4,8 @@
 원본과 다른 점(docs/CONTRACT.md 15.4·15.5·15.7절):
 - 로고·직인 입력을 파일 경로에서 PNG bytes로 바꾼다(render_trade_document(data, bank_details,
   *, logo=None, seal=None)). 직인 저장은 원본의 Supabase 대신 이 서비스의 company_branding 표다.
-- 발행 회사 이름·서명자를 원본 고정 문구 대신 문서 초안의 issuer 스냅샷(legal_name_en →
-  company_name, 서명자 ceo_name)에서 읽는다[임시: 협의 1].
+- 발행 회사 이름은 사용자가 확인한 문서의 발행자 이름을 우선하고, 그 밖에는 issuer
+  스냅샷(legal_name_en → company_name)을 쓴다. 서명자는 스냅샷의 ceo_name을 쓴다.
 - PL 포장 합계를 reconcile_packing 직접 호출 대신 data["packing_totals"]에서 읽는다
   (calculated → 선언값 → packages_total 순서, 렌더러가 합계를 다시 계산하지 않는다).
 - 계좌 6항목(PI만)·회사 명판·직인은 한 페이지 묶음으로 분할하지 않는다(PRESERVED_BEHAVIOR).
@@ -19,6 +19,7 @@ import struct
 import zlib
 
 from app.trade.common.trade_documents import current_issue_date
+from app.trade.common.settings_confirmation import is_confirmed
 
 
 PAGE_W, PAGE_H = 612, 792
@@ -33,7 +34,10 @@ WARNING = (0.69, 0.29, 0.18)
 
 # 원본: reference/kekorea/Quotation_KEKOREA/agent/pi_pdf.py issuer 스냅샷 읽기(회사 고정 문구 일반화)
 def issuer_display_name(data):
-    """발행 회사 표시 이름. 영문 법인명(legal_name_en) 우선, 없으면 company_name[임시: 협의 1]."""
+    """문서에서 확인한 발행자 이름을 PDF·XLSX에도 동일하게 표시한다."""
+    role = "buyer" if data.get("document_type") == "PO" else "seller"
+    if is_confirmed(data, f"{role}.legal_name"):
+        return str((data.get(role) or {}).get("legal_name") or "").strip()
     issuer = data.get("issuer") or {}
     return str(issuer.get("legal_name_en") or issuer.get("company_name") or "").strip()
 

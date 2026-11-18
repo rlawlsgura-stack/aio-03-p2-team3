@@ -3,6 +3,8 @@ from copy import deepcopy
 
 from app.trade.ci.models import CIInput, CIRepository, StandaloneCIInput
 from app.trade.common.models import PricedItem
+from app.trade.common.settings_confirmation import (complete_confirmed_defaults, confirm_settings_input,
+    is_confirmed, restore_unconfirmed_values, with_settings_issues)
 from app.trade.common.operations import refresh_settings_values
 from app.trade.ci.imports import _PAYMENT, ci_import_issues, is_pi_import, prepare_ci_import
 from app.trade.common.models import DocumentError
@@ -38,8 +40,10 @@ def prepare_ci(command: CIInput, source, conflicts=()):
     return document
 
 
-def prepare_standalone(command, context, values=None):
-    draft = deepcopy(values if values is not None else command.model_dump(mode="json"))
+def prepare_standalone(command, context, values=None, *, require_confirmation=False):
+    values = values if values is not None else command.model_dump(mode="json")
+    draft = deepcopy(values)
+    settings_issues = confirm_settings_input(draft, context, "CI", required=require_confirmation)
     draft.pop("mode", None)
     draft.update(document_type="PI", doc_kind="PI", issuer=deepcopy(context.issuer), bank=None)
     apply_issuer_defaults(draft, "PI", context.issuer)
@@ -52,11 +56,13 @@ def prepare_standalone(command, context, values=None):
         if item.get("unit_price") is not None:
             item["price_source"] = "User-confirmed transaction-specific override" if confirmed else "Entered document value"
     synchronize_quantities(draft)
+    complete_confirmed_defaults(draft)
     apply_verified_catalog_prices(draft, build_trade_catalog(context.price_rows))
+    restore_unconfirmed_values(draft, values, settings_issues)
     draft.update(document_type="CI", doc_kind="CI", _ci_standalone=True, payment_terms="N/A")
     if _PAYMENT.search(str(draft.get("remarks") or "")):
         draft["remarks"] = "N/A"
-    return calculate(draft)
+    return with_settings_issues(calculate(draft), settings_issues)
 
 
 def result(document):
@@ -76,13 +82,13 @@ def result(document):
 
 def create(command: CIInput | StandaloneCIInput, *, repository: CIRepository):
     if isinstance(command, StandaloneCIInput):
-        return result(repository.create(prepare_standalone(command, repository.context(command.currency))))
+        return result(repository.create(prepare_standalone(command, repository.context(command.currency), require_confirmation=True)))
     source = repository.source_pi(command.source_pi_id, command.source_revision)
     return result(repository.create(prepare_ci(command, source)))
 
 
 def extract_standalone(text, *, repository: CIRepository, extractor):
-    extracted = extractor(text)
+    extracted = {**extractor(text), "confirmed_settings": {}}
     command = StandaloneCIInput.model_validate({key: value for key, value in extracted.items()
                                                 if key in StandaloneCIInput.model_fields})
     values = command.model_dump(mode="json")
@@ -106,9 +112,9 @@ def revise(document_id, revision, command: CIInput | StandaloneCIInput, *, repos
     if previous.get("_ci_standalone") is True:
         if not isinstance(command, StandaloneCIInput):
             raise DocumentError("CI_MODE_CHANGE_REQUIRES_NEW_CI", "다른 작성 방식은 새 CI로 작성하세요")
-        values = revision_values(previous, command)
         context = revision_context(previous, repository.context(command.currency), command.currency)
-        document = prepare_standalone(command, context, values)
+        values = revision_values(previous, command)
+        document = prepare_standalone(command, context, values, require_confirmation=True)
         return result(repository.replace(document_id, revision, document, review_reference))
     if isinstance(command, StandaloneCIInput):
         raise DocumentError("CI_MODE_CHANGE_REQUIRES_NEW_CI", "다른 작성 방식은 새 CI로 작성하세요")
@@ -141,7 +147,7 @@ def refresh_settings(document_id, revision, *, repository: CIRepository):
         defaults = {"legal_name": (old_name, new_name), **{key: (old_issuer.get(key), new_issuer.get(key))
                     for key in ("address", "contact", "phone", "email")}}
         for key, (old_value, new_value) in defaults.items():
-            if new_value and (not seller.get(key) or (old_value and seller.get(key) == old_value)):
+            if new_value and not is_confirmed(document, f"seller.{key}") and (not seller.get(key) or (old_value and seller.get(key) == old_value)):
                 seller[key] = new_value
         document["seller"] = seller
         document["issuer"] = deepcopy(context.issuer)

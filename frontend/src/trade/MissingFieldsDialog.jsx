@@ -32,6 +32,7 @@ export function updateMissingField(value, path, nextValue) {
   target[parts.at(-1)] = nextValue
   const itemIndex = parts[0] === "items" ? Number(parts[1]) : -1
   if (itemIndex >= 0 && parts.at(-1) === "quantity") target.paid_quantity = nextValue
+  if (itemIndex >= 0 && ["product_name", "product_code", "capacity", "unit", "unit_price"].includes(parts.at(-1)) && "confirm_price_override" in target) target.confirm_price_override = false
   return copy
 }
 
@@ -62,21 +63,37 @@ function packingIssuePaths(issues) {
   return paths
 }
 
-function resolvedPaths(missing, issues, draft) {
+function resolvedPaths(missing, issues, draft, kind) {
   const paths = []
-  for (const raw of [...(missing ?? []), ...packingIssuePaths(issues)]) {
-    const path = String(raw)
+  const messages = (issues ?? []).map((issue) => typeof issue === "string" ? issue : issue.message)
+  for (const raw of [...(missing ?? []), ...messages, ...packingIssuePaths(issues)]) {
+    const path = String(raw).replace(/^(?:Confirm missing information|Confirm settings value|Resolve conflicting information):\s*/i, "")
     if (/^(buyer|seller)\.[a-z_]+$|^(items|packages)\.\d+\.[a-z_]+$|^[a-z_]+$/.test(path) && validPath(draft, path)) {
       paths.push(path)
       continue
     }
-    const priceMessage = /(?:catalog price|transaction-specific price).*? for (.+?)(?:;|\.|$)/i.exec(path)
-    if (priceMessage) {
-      const index = (draft.items ?? []).findIndex((item) => item.product_name?.toLowerCase().includes(priceMessage[1].trim().toLowerCase()))
-      if (index >= 0) paths.push(`items.${index}.unit_price`)
+    if (/^(?:PI|CI) seller must be the issuing company$/i.test(path)) paths.push("seller.legal_name")
+    if (/^PO buyer must be the issuing company$/i.test(path)) paths.push("buyer.legal_name")
+    if (/^PO seller must be the supplier and buyer must be the issuing company$/i.test(path)) paths.push("seller.legal_name", "buyer.legal_name")
+    if (/^Issuing company name is not configured$/i.test(path)) paths.push(`${kind === "PO" ? "buyer" : "seller"}.legal_name`)
+    const party = /^(Buyer|Seller) (?:Chinese )?(legal name|address|contact|phone|email) (?:is required|must)/i.exec(path)
+    if (party) paths.push(`${party[1].toLowerCase()}.${party[2].replace(" ", "_")}`)
+    const product = /^Exact catalog product match for (.+?); capacity\/SKU may be needed$/i.exec(path)
+    const price = /^(?:Verified \S+ catalog price|Confirm a transaction-specific price) for (.+?)(?:;|$)/i.exec(path)
+      ?? /^Cosmetics price for (.+) must match the verified price master$/i.exec(path)
+      ?? /^(.+) stated price differs from the verified catalog; confirm transaction override$/i.exec(path)
+    const basis = /^Price basis for (.+)$/i.exec(path)
+    const named = product ?? price ?? basis
+    if (named) {
+      const fields = product ? ["product_name", "product_code", "capacity"] : basis ? ["price_basis"] : ["unit_price", "price_basis"]
+      draft.items?.forEach((item, index) => {
+        if ([item.product_name, `item ${index + 1}`].some((name) => name?.trim().toLowerCase() === named[1].trim().toLowerCase())) {
+          paths.push(...fields.map((field) => `items.${index}.${field}`))
+        }
+      })
     }
   }
-  return [...new Set(paths)]
+  return [...new Set(paths)].filter((path) => validPath(draft, path))
 }
 
 function fieldLabel(path) {
@@ -88,7 +105,8 @@ function fieldLabel(path) {
 
 export default function MissingFieldsDialog({ open, kind, draft, missing, issues, busy, dirty, onChange, onSave, onClose }) {
   const ref = useRef(null)
-  const paths = useMemo(() => resolvedPaths(missing, issues, draft), [missing, issues, draft])
+  const paths = useMemo(() => resolvedPaths(missing, issues, draft, kind), [missing, issues, draft, kind])
+  const hasValues = paths.some((path) => String(readPath(draft, path) ?? "").trim())
 
   useEffect(() => {
     const dialog = ref.current
@@ -97,8 +115,8 @@ export default function MissingFieldsDialog({ open, kind, draft, missing, issues
   }, [open])
 
   return <dialog ref={ref} className="missing-fields-dialog" aria-labelledby="missing-fields-title" onCancel={(event) => { event.preventDefault(); onClose() }} onClose={onClose}>
-    <div className="missing-fields-head"><div><p className="eyebrow">{kind} document</p><h2 id="missing-fields-title">누락 정보를 입력해 주세요</h2>
-      <p>값을 입력한 뒤 저장하면 문서의 새 버전으로 반영됩니다.</p></div>
+    <div className="missing-fields-head"><div><p className="eyebrow">{kind} document</p><h2 id="missing-fields-title">항목을 확인하거나 수정해 주세요</h2>
+      <p>설정과 다른 값도 저장할 때 확인하면 이 문서에 사용할 수 있습니다. 필수값과 숫자 형식은 계속 확인합니다.</p></div>
       <button className="missing-fields-close" type="button" onClick={onClose} aria-label="팝업 닫기">×</button></div>
     {paths.length ? <div className="missing-fields-form">
       {paths.map((path) => {
@@ -114,8 +132,8 @@ export default function MissingFieldsDialog({ open, kind, draft, missing, issues
             onChange={(event) => onChange(`${path.slice(0, path.lastIndexOf("."))}.confirm_price_override`, event.target.checked)} /> 단가표 대신 입력한 단가 사용</label>}
         </div>
       })}
-    </div> : <p className="missing-fields-empty">이 오류는 문서 입력값이 아니라 설정 정보 확인이 필요합니다. <Link to={`/settings${kind === "PI" ? "?section=bank" : ""}`} onClick={onClose}>설정 열기</Link></p>}
+    </div> : <p className="missing-fields-empty">해당 작성 단계에서 항목을 수정하거나 회사·계좌·이미지 설정을 확인해 주세요. <Link to={`/settings${kind === "PI" ? "?section=bank" : ""}`} onClick={onClose}>설정 열기</Link></p>}
     <div className="missing-fields-actions"><button className="btn" type="button" disabled={busy} onClick={onClose}>닫기</button>
-      <button className="btn blue" type="button" disabled={busy || !dirty || !paths.length} onClick={onSave}>{busy ? "저장 중…" : "저장하고 반영"}</button></div>
+      <button className="btn blue" type="button" disabled={busy || (!dirty && !hasValues) || !paths.length} onClick={onSave}>{busy ? "저장 중…" : "확인하고 저장·반영"}</button></div>
   </dialog>
 }

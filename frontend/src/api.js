@@ -4,10 +4,11 @@
 // - 401 처리: 401도 ApiError로 던지고 AuthContext이 로컬 세션을 정리한 뒤 로그인 복구 안내로 이어진다.
 
 export class ApiError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details) {
     super(message)
     this.status = status
     this.code = code
+    if (details !== undefined) this.details = details
   }
 }
 
@@ -41,6 +42,7 @@ export async function apiFetch(path, { method = "GET", token, body, signal, resp
       data?.error?.message ?? (Array.isArray(data?.detail)
         ? data.detail.map((issue) => issue.msg.replace(/^Value error, /, "")).join(" / ")
         : typeof data?.detail === "string" ? data.detail : `요청이 실패했습니다(${response.status}).`),
+      data?.error?.details,
     )
   }
   return data

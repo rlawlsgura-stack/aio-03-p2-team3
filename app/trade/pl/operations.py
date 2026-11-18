@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.trade.common.models import DocumentError
-from app.trade.common.operations import calculate, check_revision, revision_context
+from app.trade.common.operations import calculate, check_revision, revision_context, refresh_settings_values
+from app.trade.common.settings_confirmation import confirm_settings_input, restore_unconfirmed_values, with_settings_issues
 from app.trade.common.results import document_result, editable_values
 from app.trade.common.counterparties import apply_company_profiles
 from app.trade.pl.packing_review import (PACKING_SOURCE_FIELDS, apply_approved_packing_totals,
@@ -40,12 +41,14 @@ def finalize(draft, approved=False):
     return document
 
 
-def prepare_pl(values, context):
+def prepare_pl(values, context, *, require_confirmation=False):
     draft = deepcopy(values)
+    settings_issues = confirm_settings_input(draft, context, "PL", required=require_confirmation)
     draft.update(document_type="PL", doc_kind="PL", currency=None, bank=None, issuer=deepcopy(context.issuer))
     apply_issuer_defaults(draft, "PL", context.issuer)
     apply_company_profiles(draft, context.counterparties)
-    return finalize(draft)
+    restore_unconfirmed_values(draft, values, settings_issues)
+    return with_settings_issues(finalize(draft), settings_issues)
 
 
 def result(document):
@@ -58,18 +61,19 @@ def result(document):
 
 
 def create(command: PLInput, *, repository: PLRepository):
-    return result(repository.create(prepare_pl(command.model_dump(mode="json"), repository.context(None))))
+    return result(repository.create(prepare_pl(command.model_dump(mode="json"), repository.context(None), require_confirmation=True)))
 
 
 def extract(text, *, repository: PLRepository, extractor):
-    return result(repository.create(prepare_pl(extractor(text), repository.context(None))))
+    values = {**extractor(text), "confirmed_settings": {}}
+    return result(repository.create(prepare_pl(values, repository.context(None))))
 
 
 def revise(document_id, revision, command: PLInput, *, repository: PLRepository, review_reference=None):
     previous = repository.get(document_id)
     check_revision(previous, revision)
     context = revision_context(previous, repository.context(None), None)
-    document = prepare_pl(command.model_dump(mode="json"), context)
+    document = prepare_pl(command.model_dump(mode="json"), context, require_confirmation=True)
     document["packing_approval_log"] = [*previous.get("packing_approval_log", []),
                                         {"action": "modify", "at": datetime.now(timezone.utc).isoformat()}]
     return result(repository.replace(document_id, revision, document, review_reference))
@@ -79,7 +83,7 @@ def refresh_settings(document_id, revision, *, repository: PLRepository):
     previous = repository.get(document_id)
     check_revision(previous, revision)
     context = repository.context(None)
-    values = common.refresh_settings_values(previous, context, "PL", PLInput, PLItem)
+    values = refresh_settings_values(previous, context, "PL", PLInput, PLItem)
     document = prepare_pl(values, context)
     document["packing_approval_log"] = [*previous.get("packing_approval_log", []),
                                         {"action": "modify", "at": datetime.now(timezone.utc).isoformat()}]

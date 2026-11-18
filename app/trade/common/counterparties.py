@@ -44,6 +44,7 @@ def _mentioned(prompt, profile):
 # 원본: reference/kekorea/Quotation_KEKOREA/agent/counterparties.py apply_company_profiles
 def apply_company_profiles(draft, profiles, *, prompt=''):
     """Fill missing recipient fields; explicit order values always take priority."""
+    from app.trade.common.settings_confirmation import is_confirmed
     dtype = draft.get('document_type')
     if dtype not in {'PI', 'PO', 'CI', 'PL'}:
         return draft
@@ -69,14 +70,15 @@ def apply_company_profiles(draft, profiles, *, prompt=''):
         parts = path.split('.')
         target = draft.get(parts[0], {}) if len(parts) == 2 else draft
         field = parts[-1]
-        if isinstance(target, dict) and target.get(field) == original_value:
+        if isinstance(target, dict) and target.get(field) == original_value and not is_confirmed(draft, path):
             target[field] = previous.get('source_name') if path == role + '.legal_name' else None
     if len(matches) != 1:
         return draft
     profile = matches[0]
     applied = {}
     # The exact registered legal name replaces only a recognized name alias.
-    party['legal_name'] = profile['legal_name']
+    if not is_confirmed(draft, role + '.legal_name'):
+        party['legal_name'] = profile['legal_name']
     if supplied_name != profile['legal_name'] or role + '.legal_name' in previous.get('fields', {}):
         applied[role + '.legal_name'] = profile['legal_name']
     for field in ('address', 'contact', 'phone', 'email', 'registration_details'):
